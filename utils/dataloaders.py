@@ -538,7 +538,7 @@ def img2label_paths(img_paths):
 class LoadImagesAndLabels(Dataset):
     """Loads images and their corresponding labels for training and validation in YOLOv5."""
 
-    cache_version = 0.6  # dataset labels *.cache version
+    cache_version = 0.7  # dataset labels *.cache version
     rand_interp_methods = [cv2.INTER_NEAREST, cv2.INTER_LINEAR, cv2.INTER_CUBIC, cv2.INTER_AREA, cv2.INTER_LANCZOS4]
 
     def __init__(
@@ -582,11 +582,19 @@ class LoadImagesAndLabels(Dataset):
                     with open(p) as t:
                         t = t.read().strip().splitlines()
                         parent = str(p.parent) + os.sep
-                        f += [x.replace("./", parent, 1) if x.startswith("./") else x for x in t]  # to global path
+                        f += [x.replace("./", parent, 1) if x.startswith("./") else x for x in t]  # to global path   
                         # f += [p.parent / x.lstrip(os.sep) for x in t]  # to global path (pathlib)
                 else:
                     raise FileNotFoundError(f"{prefix}{p} does not exist")
-            self.im_files = sorted(x.replace("/", os.sep) for x in f if x.split(".")[-1].lower() in IMG_FORMATS)
+                    #added
+            filtered_files = [file for file in f if "mask" not in Path(file).parts]
+            mask_filesd = [file for file in f if "mask" in Path(file).parts]
+            
+            self.im_files = sorted(x.replace("/", os.sep) for x in filtered_files if x.split(".")[-1].lower() in IMG_FORMATS)
+
+            #added
+            self.mask_files = sorted(x.replace("/", os.sep) for x in mask_filesd if x.split(".")[-1].lower() in IMG_FORMATS)
+            
             # self.img_files = sorted([x for x in f if x.suffix[1:].lower() in IMG_FORMATS])  # pathlib
             assert self.im_files, f"{prefix}No images found"
         except Exception as e:
@@ -613,10 +621,11 @@ class LoadImagesAndLabels(Dataset):
 
         # Read cache
         [cache.pop(k) for k in ("hash", "version", "msgs")]  # remove items
-        labels, shapes, self.segments = zip(*cache.values())
+        labels, shapes, self.segments = zip(*cache.values()) ##added masks
         nl = len(np.concatenate(labels, 0))  # number of labels
         assert nl > 0 or not augment, f"{prefix}All labels empty in {cache_path}, can not start training. {HELP_URL}"
         self.labels = list(labels)
+        #self.masks = list(masks) ##added line
         self.shapes = np.array(shapes)
         self.im_files = list(cache.keys())  # update
         self.label_files = img2label_paths(cache.keys())  # update
@@ -684,10 +693,13 @@ class LoadImagesAndLabels(Dataset):
         if cache_images == "ram" and not self.check_cache_ram(prefix=prefix):
             cache_images = False
         self.ims = [None] * n
+        self.mks = [None] * n ##added line
         self.npy_files = [Path(f).with_suffix(".npy") for f in self.im_files]
+        self.npy_m_files = [Path(f).with_suffix(".npy") for f in self.mask_files] ##added line
         if cache_images:
             b, gb = 0, 1 << 30  # bytes of cached images, bytes per gigabytes
             self.im_hw0, self.im_hw = [None] * n, [None] * n
+            self.ms_hw0, self.ms_hw = [None] * n, [None] * n
             fcn = self.cache_images_to_disk if cache_images == "disk" else self.load_image
             results = ThreadPool(NUM_THREADS).imap(lambda i: (i, fcn(i)), self.indices)
             pbar = tqdm(results, total=len(self.indices), bar_format=TQDM_BAR_FORMAT, disable=LOCAL_RANK > 0)
@@ -726,18 +738,19 @@ class LoadImagesAndLabels(Dataset):
         desc = f"{prefix}Scanning {path.parent / path.stem}..."
         with Pool(NUM_THREADS) as pool:
             pbar = tqdm(
-                pool.imap(verify_image_label, zip(self.im_files, self.label_files, repeat(prefix))),
+                pool.imap(verify_image_label, zip(self.im_files, self.label_files, self.mask_files, repeat(prefix))), ##added self.mask_files
                 desc=desc,
                 total=len(self.im_files),
                 bar_format=TQDM_BAR_FORMAT,
             )
-            for im_file, lb, shape, segments, nm_f, nf_f, ne_f, nc_f, msg in pbar:
+            ##added mask_file
+            for im_file, lb, mask_file, shape, segments, nm_f, nf_f, ne_f, nc_f, msg in pbar:
                 nm += nm_f
                 nf += nf_f
                 ne += ne_f
                 nc += nc_f
                 if im_file:
-                    x[im_file] = [lb, shape, segments]
+                    x[im_file] = [mask_file,lb, shape, segments] ##added mask_file
                 if msg:
                     msgs.append(msg)
                 pbar.desc = f"{desc} {nf} images, {nm + ne} backgrounds, {nc} corrupt"
@@ -786,7 +799,7 @@ class LoadImagesAndLabels(Dataset):
 
         else:
             # Load image
-            img, (h0, w0), (h, w) = self.load_image(index)
+            img, (h0, w0), (h, w),mask, (hm0,wm0),(hm,wm) = self.load_image(index)
 
             # Letterbox
             shape = self.batch_shapes[self.batch[index]] if self.rect else self.img_size  # final letterboxed shape
@@ -844,7 +857,9 @@ class LoadImagesAndLabels(Dataset):
         img = img.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
         img = np.ascontiguousarray(img)
 
-        return torch.from_numpy(img), labels_out, self.im_files[index], shapes
+        mask = np.ascontiguousarray(mask)
+
+        return torch.from_numpy(img), torch.from_numpy(mask), labels_out, self.im_files[index], shapes ##added torch.from_numpy(mask)
 
     def load_image(self, i):
         """
@@ -852,30 +867,46 @@ class LoadImagesAndLabels(Dataset):
 
         Returns (im, original hw, resized hw)
         """
-        im, f, fn = (
+        im, ms,f,m, fn, fm = (
             self.ims[i],
+            self.mks[i], ##added line
             self.im_files[i],
+            self.mask_files[i], ##added line
             self.npy_files[i],
+            self.npy_m_files[i] ##added line
         )
         if im is None:  # not cached in RAM
             if fn.exists():  # load npy
                 im = np.load(fn)
+                ms = np.load(fm) ##added line
             else:  # read image
                 im = cv2.imread(f)  # BGR
+                ms = cv2.imread(m) ##added line
                 assert im is not None, f"Image Not Found {f}"
             h0, w0 = im.shape[:2]  # orig hw
             r = self.img_size / max(h0, w0)  # ratio
             if r != 1:  # if sizes are not equal
                 interp = cv2.INTER_LINEAR if (self.augment or r > 1) else cv2.INTER_AREA
                 im = cv2.resize(im, (math.ceil(w0 * r), math.ceil(h0 * r)), interpolation=interp)
-            return im, (h0, w0), im.shape[:2]  # im, hw_original, hw_resized
-        return self.ims[i], self.im_hw0[i], self.im_hw[i]  # im, hw_original, hw_resized
+            #added below lines
+            hm0, wm0 = ms.shape[:2]  # orig hw
+            rm = self.img_size / max(hm0, wm0)  # ratio
+            if rm != 1:  # if sizes are not equal
+                interpm = cv2.INTER_LINEAR if (self.augment or rm > 1) else cv2.INTER_AREA
+                ms = cv2.resize(ms, (math.ceil(wm0 * rm), math.ceil(hm0 * rm)), interpolation=interpm)
+                
+            return im, (h0, w0), im.shape[:2], ms , (hm0, wm0), ms.shape[:2]  # im, hw_original, hw_resized ##added last 3 arguments
+        return self.ims[i], self.im_hw0[i], self.im_hw[i], self.mks[i],self.ms_hw0[i], self.ms_hw[i]  # im, hw_original, hw_resized ##added self.mask_files[i]
 
     def cache_images_to_disk(self, i):
         """Saves an image to disk as an *.npy file for quicker loading, identified by index `i`."""
         f = self.npy_files[i]
         if not f.exists():
             np.save(f.as_posix(), cv2.imread(self.im_files[i]))
+
+        fm = self.npy_m_files[i]
+        if not fm.exists():
+            np.save(fm.as_posix(), cv2.imread(self.mask_files[i]))
 
     def load_mosaic(self, index):
         """Loads a 4-image mosaic for YOLOv5, combining 1 selected and 3 random images, with labels and segments."""
@@ -1136,7 +1167,8 @@ def autosplit(path=DATASETS_DIR / "coco128/images", weights=(0.9, 0.1, 0.0), ann
 
 def verify_image_label(args):
     """Verifies a single image-label pair, ensuring image format, size, and legal label values."""
-    im_file, lb_file, prefix = args
+    ##added mask_file
+    im_file, lb_file, mask_file, prefix = args
     nm, nf, ne, nc, msg, segments = 0, 0, 0, 0, "", []  # number (missing, found, empty, corrupt), message, segments
     try:
         # verify images
@@ -1151,6 +1183,19 @@ def verify_image_label(args):
                 if f.read() != b"\xff\xd9":  # corrupt JPEG
                     ImageOps.exif_transpose(Image.open(im_file)).save(im_file, "JPEG", subsampling=0, quality=100)
                     msg = f"{prefix}WARNING ⚠️ {im_file}: corrupt JPEG restored and saved"
+
+        ms = Image.open(mask_file)
+        ms.verify()  # PIL verify
+        shape = exif_size(ms)  # image size
+        assert (shape[0] > 9) & (shape[1] > 9), f"image size {shape} <10 pixels"
+        assert ms.format.lower() in IMG_FORMATS, f"invalid image format {ms.format}"
+        if ms.format.lower() in ("jpg", "jpeg"):
+            with open(mask_file, "rb") as f:
+                f.seek(-2, 2)
+                if f.read() != b"\xff\xd9":  # corrupt JPEG
+                    ImageOps.exif_transpose(Image.open(mask_file)).save(mask_file, "JPEG", subsampling=0, quality=100)
+                    msg = f"{prefix}WARNING ⚠️ {mask_file}: corrupt JPEG restored and saved"
+        
 
         # verify labels
         if os.path.isfile(lb_file):
@@ -1179,7 +1224,8 @@ def verify_image_label(args):
         else:
             nm = 1  # label missing
             lb = np.zeros((0, 5), dtype=np.float32)
-        return im_file, lb, shape, segments, nm, nf, ne, nc, msg
+            ##added mask_file
+        return im_file, lb, mask_file, shape, segments, nm, nf, ne, nc, msg
     except Exception as e:
         nc = 1
         msg = f"{prefix}WARNING ⚠️ {im_file}: ignoring corrupt image/label: {e}"
