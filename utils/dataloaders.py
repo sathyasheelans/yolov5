@@ -706,9 +706,11 @@ class LoadImagesAndLabels(Dataset):
             for i, x in pbar:
                 if cache_images == "disk":
                     b += self.npy_files[i].stat().st_size
+                    b += self.npy_m_files[i].stat().st_size
                 else:  # 'ram'
-                    self.ims[i], self.im_hw0[i], self.im_hw[i] = x  # im, hw_orig, hw_resized = load_image(self, i)
+                    self.ims[i], self.im_hw0[i], self.im_hw[i], self.mks[i], self.ms_hw0[i], self.ms_hw[i] = x  # im, hw_orig, hw_resized = load_image(self, i) ##added
                     b += self.ims[i].nbytes * WORLD_SIZE
+                    b += self.mks[i].nbytes * WORLD_SIZE
                 pbar.desc = f"{prefix}Caching images ({b / gb:.1f}GB {cache_images})"
             pbar.close()
 
@@ -799,11 +801,12 @@ class LoadImagesAndLabels(Dataset):
 
         else:
             # Load image
-            img, (h0, w0), (h, w),mask, (hm0,wm0),(hm,wm) = self.load_image(index)
+            img, (h0, w0), (h, w), mask, (hm0,wm0),(hm,wm) = self.load_image(index)  ##added mask
 
             # Letterbox
             shape = self.batch_shapes[self.batch[index]] if self.rect else self.img_size  # final letterboxed shape
             img, ratio, pad = letterbox(img, shape, auto=False, scaleup=self.augment)
+            mask, ratio_m, pad_m = letterbox(mask, shape, auto=False, scaleup=self.augment)
             shapes = (h0, w0), ((h / h0, w / w0), pad)  # for COCO mAP rescaling
 
             labels = self.labels[index].copy()
@@ -857,6 +860,7 @@ class LoadImagesAndLabels(Dataset):
         img = img.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
         img = np.ascontiguousarray(img)
 
+        mask = mask.transpose((2, 0, 1))[::-1]
         mask = np.ascontiguousarray(mask)
 
         return torch.from_numpy(img), torch.from_numpy(mask), labels_out, self.im_files[index], shapes ##added torch.from_numpy(mask)
