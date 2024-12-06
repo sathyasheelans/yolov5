@@ -860,7 +860,7 @@ class LoadImagesAndLabels(Dataset):
         img = img.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
         img = np.ascontiguousarray(img)
 
-        mask = mask.transpose((2, 0, 1))[::-1]
+        #mask = mask.transpose((2, 0, 1))[::-1] ##added
         mask = np.ascontiguousarray(mask)
 
         return torch.from_numpy(img), torch.from_numpy(mask), labels_out, self.im_files[index], shapes ##added torch.from_numpy(mask)
@@ -885,8 +885,9 @@ class LoadImagesAndLabels(Dataset):
                 ms = np.load(fm) ##added line
             else:  # read image
                 im = cv2.imread(f)  # BGR
-                ms = cv2.imread(m) ##added line
+                ms = cv2.imread(m, cv2.IMREAD_GRAYSCALE)  # Load mask as grayscale ##added line to load the image as grayscale
                 assert im is not None, f"Image Not Found {f}"
+                assert ms is not None, f"Mask Not Found {m}"
             h0, w0 = im.shape[:2]  # orig hw
             r = self.img_size / max(h0, w0)  # ratio
             if r != 1:  # if sizes are not equal
