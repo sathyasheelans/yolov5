@@ -621,7 +621,7 @@ class LoadImagesAndLabels(Dataset):
 
         # Read cache
         [cache.pop(k) for k in ("hash", "version", "msgs")]  # remove items
-        labels, shapes, self.segments = zip(*cache.values()) ##added masks
+        labels, shapes, self.segments = zip(*cache.values())
         nl = len(np.concatenate(labels, 0))  # number of labels
         assert nl > 0 or not augment, f"{prefix}All labels empty in {cache_path}, can not start training. {HELP_URL}"
         self.labels = list(labels)
@@ -746,13 +746,13 @@ class LoadImagesAndLabels(Dataset):
                 bar_format=TQDM_BAR_FORMAT,
             )
             ##added mask_file
-            for im_file, lb, mask_file, shape, segments, nm_f, nf_f, ne_f, nc_f, msg in pbar:
+            for im_file, lb, _ , shape, segments, nm_f, nf_f, ne_f, nc_f, msg in pbar:
                 nm += nm_f
                 nf += nf_f
                 ne += ne_f
                 nc += nc_f
                 if im_file:
-                    x[im_file] = [mask_file,lb, shape, segments] ##added mask_file
+                    x[im_file] = [lb, shape, segments]
                 if msg:
                     msgs.append(msg)
                 pbar.desc = f"{desc} {nf} images, {nm + ne} backgrounds, {nc} corrupt"
@@ -830,19 +830,19 @@ class LoadImagesAndLabels(Dataset):
 
         if self.augment:
             # Albumentations
-            img, labels = self.albumentations(img, labels)
+            img, labels = self.albumentations(img, labels)  ##add mask here
             nl = len(labels)  # update after albumentations
 
             # HSV color-space
             augment_hsv(img, hgain=hyp["hsv_h"], sgain=hyp["hsv_s"], vgain=hyp["hsv_v"])
 
-            # Flip up-down
+            # Flip up-down  ##add line to flip mask
             if random.random() < hyp["flipud"]:
                 img = np.flipud(img)
                 if nl:
                     labels[:, 2] = 1 - labels[:, 2]
 
-            # Flip left-right
+            # Flip left-right ##add line to flip mask
             if random.random() < hyp["fliplr"]:
                 img = np.fliplr(img)
                 if nl:
@@ -896,7 +896,7 @@ class LoadImagesAndLabels(Dataset):
             #added below lines
             hm0, wm0 = ms.shape[:2]  # orig hw
             rm = self.img_size / max(hm0, wm0)  # ratio
-            if rm != 1:  # if sizes are not equal
+            if rm != 1:  # if sizes are not equal ##change for cv2.INTER_NEAREST
                 interpm = cv2.INTER_LINEAR if (self.augment or rm > 1) else cv2.INTER_AREA
                 ms = cv2.resize(ms, (math.ceil(wm0 * rm), math.ceil(hm0 * rm)), interpolation=interpm)
                 
