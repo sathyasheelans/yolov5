@@ -538,7 +538,7 @@ def img2label_paths(img_paths):
 class LoadImagesAndLabels(Dataset):
     """Loads images and their corresponding labels for training and validation in YOLOv5."""
 
-    cache_version = 0.7  # dataset labels *.cache version
+    cache_version = 0.8  # dataset labels *.cache version
     rand_interp_methods = [cv2.INTER_NEAREST, cv2.INTER_LINEAR, cv2.INTER_CUBIC, cv2.INTER_AREA, cv2.INTER_LANCZOS4]
 
     def __init__(
@@ -565,7 +565,8 @@ class LoadImagesAndLabels(Dataset):
         self.hyp = hyp
         self.image_weights = image_weights
         self.rect = False if image_weights else rect
-        self.mosaic = self.augment and not self.rect  # load 4 images at a time into a mosaic (only during training)
+        self.mosaic = False ## commented mosaic
+        #self.mosaic = self.augment and not self.rect  # load 4 images at a time into a mosaic (only during training)
         self.mosaic_border = [-img_size // 2, -img_size // 2]
         self.stride = stride
         self.path = path
@@ -814,8 +815,9 @@ class LoadImagesAndLabels(Dataset):
                 labels[:, 1:] = xywhn2xyxy(labels[:, 1:], ratio[0] * w, ratio[1] * h, padw=pad[0], padh=pad[1])
 
             if self.augment:
-                img, labels = random_perspective(
+                img, mask, labels = random_perspective(
                     img,
+                    mask,
                     labels,
                     degrees=hyp["degrees"],
                     translate=hyp["translate"],
@@ -830,21 +832,22 @@ class LoadImagesAndLabels(Dataset):
 
         if self.augment:
             # Albumentations
-            img, labels = self.albumentations(img, labels)  ##add mask here
+            img,mask, labels = self.albumentations(img,mask, labels)  ##add mask here
             nl = len(labels)  # update after albumentations
-
             # HSV color-space
             augment_hsv(img, hgain=hyp["hsv_h"], sgain=hyp["hsv_s"], vgain=hyp["hsv_v"])
 
             # Flip up-down  ##add line to flip mask
             if random.random() < hyp["flipud"]:
                 img = np.flipud(img)
+                mask = np.flipud(mask) ##added mask
                 if nl:
                     labels[:, 2] = 1 - labels[:, 2]
 
             # Flip left-right ##add line to flip mask
             if random.random() < hyp["fliplr"]:
                 img = np.fliplr(img)
+                mask = np.fliplr(mask) ##added mask
                 if nl:
                     labels[:, 1] = 1 - labels[:, 1]
 

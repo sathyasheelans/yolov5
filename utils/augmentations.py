@@ -47,12 +47,16 @@ class Albumentations:
         except Exception as e:
             LOGGER.info(f"{prefix}{e}")
 
-    def __call__(self, im, labels, p=1.0):
+    def __call__(self, im,mk, labels, p=1.0):  ##added mask
         """Applies transformations to an image and labels with probability `p`, returning updated image and labels."""
         if self.transform and random.random() < p:
             new = self.transform(image=im, bboxes=labels[:, 1:], class_labels=labels[:, 0])  # transformed
             im, labels = new["image"], np.array([[c, *b] for c, b in zip(new["class_labels"], new["bboxes"])])
-        return im, labels
+
+            ##added mask
+            new_1 = self.transform(image=mk, bboxes=labels[:, 1:], class_labels=labels[:, 0])  # transformed
+            mk, labels_1 = new_1["image"], np.array([[c, *b] for c, b in zip(new_1["class_labels"], new_1["bboxes"])])
+        return im,mk, labels
 
 
 def normalize(x, mean=IMAGENET_MEAN, std=IMAGENET_STD, inplace=False):
@@ -153,7 +157,7 @@ def letterbox(im, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleF
 
 
 def random_perspective(
-    im, targets=(), segments=(), degrees=10, translate=0.1, scale=0.1, shear=10, perspective=0.0, border=(0, 0)
+    im, mk, targets=(), segments=(), degrees=10, translate=0.1, scale=0.1, shear=10, perspective=0.0, border=(0, 0)
 ):
     # torchvision.transforms.RandomAffine(degrees=(-10, 10), translate=(0.1, 0.1), scale=(0.9, 1.1), shear=(-10, 10))
     # targets = [cls, xyxy]
@@ -194,8 +198,10 @@ def random_perspective(
     if (border[0] != 0) or (border[1] != 0) or (M != np.eye(3)).any():  # image changed
         if perspective:
             im = cv2.warpPerspective(im, M, dsize=(width, height), borderValue=(114, 114, 114))
+            mk = cv2.warpPerspective(mk, M, dsize=(width, height), flags=cv2.INTER_NEAREST, borderValue=(114)) ##added mask
         else:  # affine
             im = cv2.warpAffine(im, M[:2], dsize=(width, height), borderValue=(114, 114, 114))
+            mk = cv2.warpAffine(mk, M[:2], dsize=(width, height), flags=cv2.INTER_NEAREST, borderValue=(114)) ##added mask
 
     # Visualize
     # import matplotlib.pyplot as plt
@@ -239,7 +245,7 @@ def random_perspective(
         targets = targets[i]
         targets[:, 1:5] = new[i]
 
-    return im, targets
+    return im, mk, targets
 
 
 def copy_paste(im, labels, segments, p=0.5):
