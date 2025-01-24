@@ -26,11 +26,10 @@ class Albumentations:
         prefix = colorstr("albumentations: ")
         try:
             import albumentations as A
-
-            check_version(A.__version__, "1.0.3", hard=True)  # version requirement
-
+            check_version(A.__version__, "2.0.0", hard=True)  # version requirement
+            print("Transform 2")
             T = [
-                A.RandomResizedCrop(height=size, width=size, scale=(0.8, 1.0), ratio=(0.9, 1.11), p=0.0),
+                #A.RandomResizedCrop(height=size, width=size, scale=(0.8, 1.0), ratio=(0.9, 1.11), p=0.0),
                 A.Blur(p=0.01),
                 A.MedianBlur(p=0.01),
                 A.ToGray(p=0.01),
@@ -39,7 +38,10 @@ class Albumentations:
                 A.RandomGamma(p=0.0),
                 A.ImageCompression(quality_lower=75, p=0.0),
             ]  # transforms
+            print("Transform T")
             self.transform = A.Compose(T, bbox_params=A.BboxParams(format="yolo", label_fields=["class_labels"]))
+            print("Transform T After")
+            
 
             LOGGER.info(prefix + ", ".join(f"{x}".replace("always_apply=False, ", "") for x in T if x.p))
         except ImportError:  # package not installed, skip
@@ -50,12 +52,10 @@ class Albumentations:
     def __call__(self, im,mk, labels, p=1.0):  ##added mask
         """Applies transformations to an image and labels with probability `p`, returning updated image and labels."""
         if self.transform and random.random() < p:
-            new = self.transform(image=im, bboxes=labels[:, 1:], class_labels=labels[:, 0])  # transformed
-            im, labels = new["image"], np.array([[c, *b] for c, b in zip(new["class_labels"], new["bboxes"])])
+            print("Random")
+            new = self.transform(image=im, mask=mk, bboxes=labels[:, 1:], class_labels=labels[:, 0])  # transformed
+            im, mk,labels = new["image"],new["mask"], np.array([[c, *b] for c, b in zip(new["class_labels"], new["bboxes"])])
 
-            ##added mask
-            new_1 = self.transform(image=mk, bboxes=labels[:, 1:], class_labels=labels[:, 0])  # transformed
-            mk, labels_1 = new_1["image"], np.array([[c, *b] for c, b in zip(new_1["class_labels"], new_1["bboxes"])])
         return im,mk, labels
 
 

@@ -538,7 +538,7 @@ def img2label_paths(img_paths):
 class LoadImagesAndLabels(Dataset):
     """Loads images and their corresponding labels for training and validation in YOLOv5."""
 
-    cache_version = 0.8  # dataset labels *.cache version
+    cache_version = 0.7  # dataset labels *.cache version
     rand_interp_methods = [cv2.INTER_NEAREST, cv2.INTER_LINEAR, cv2.INTER_CUBIC, cv2.INTER_AREA, cv2.INTER_LANCZOS4]
 
     def __init__(
@@ -565,8 +565,7 @@ class LoadImagesAndLabels(Dataset):
         self.hyp = hyp
         self.image_weights = image_weights
         self.rect = False if image_weights else rect
-        self.mosaic = False ## commented mosaic
-        #self.mosaic = self.augment and not self.rect  # load 4 images at a time into a mosaic (only during training)
+        self.mosaic = self.augment and not self.rect  # load 4 images at a time into a mosaic (only during training)
         self.mosaic_border = [-img_size // 2, -img_size // 2]
         self.stride = stride
         self.path = path
@@ -622,7 +621,7 @@ class LoadImagesAndLabels(Dataset):
 
         # Read cache
         [cache.pop(k) for k in ("hash", "version", "msgs")]  # remove items
-        labels, shapes, self.segments = zip(*cache.values())
+        labels, shapes, self.segments = zip(*cache.values()) ##added masks
         nl = len(np.concatenate(labels, 0))  # number of labels
         assert nl > 0 or not augment, f"{prefix}All labels empty in {cache_path}, can not start training. {HELP_URL}"
         self.labels = list(labels)
@@ -747,13 +746,13 @@ class LoadImagesAndLabels(Dataset):
                 bar_format=TQDM_BAR_FORMAT,
             )
             ##added mask_file
-            for im_file, lb, _ , shape, segments, nm_f, nf_f, ne_f, nc_f, msg in pbar:
+            for im_file, lb, mask_file, shape, segments, nm_f, nf_f, ne_f, nc_f, msg in pbar:
                 nm += nm_f
                 nf += nf_f
                 ne += ne_f
                 nc += nc_f
                 if im_file:
-                    x[im_file] = [lb, shape, segments]
+                    x[im_file] = [mask_file,lb, shape, segments] ##added mask_file
                 if msg:
                     msgs.append(msg)
                 pbar.desc = f"{desc} {nf} images, {nm + ne} backgrounds, {nc} corrupt"
@@ -815,9 +814,8 @@ class LoadImagesAndLabels(Dataset):
                 labels[:, 1:] = xywhn2xyxy(labels[:, 1:], ratio[0] * w, ratio[1] * h, padw=pad[0], padh=pad[1])
 
             if self.augment:
-                img, mask, labels = random_perspective(
+                img, labels = random_perspective(
                     img,
-                    mask,
                     labels,
                     degrees=hyp["degrees"],
                     translate=hyp["translate"],
@@ -832,22 +830,21 @@ class LoadImagesAndLabels(Dataset):
 
         if self.augment:
             # Albumentations
-            img,mask, labels = self.albumentations(img,mask, labels,p=1)  ##add mask here
+            img, labels = self.albumentations(img, labels)  ##add mask here
             nl = len(labels)  # update after albumentations
+
             # HSV color-space
             augment_hsv(img, hgain=hyp["hsv_h"], sgain=hyp["hsv_s"], vgain=hyp["hsv_v"])
 
             # Flip up-down  ##add line to flip mask
             if random.random() < hyp["flipud"]:
                 img = np.flipud(img)
-                mask = np.flipud(mask) ##added mask
                 if nl:
                     labels[:, 2] = 1 - labels[:, 2]
 
             # Flip left-right ##add line to flip mask
             if random.random() < hyp["fliplr"]:
                 img = np.fliplr(img)
-                mask = np.fliplr(mask) ##added mask
                 if nl:
                     labels[:, 1] = 1 - labels[:, 1]
 
