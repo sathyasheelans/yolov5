@@ -30,6 +30,7 @@ class Albumentations:
             print("Transform 2")
             T = [
                 #A.RandomResizedCrop(height=size, width=size, scale=(0.8, 1.0), ratio=(0.9, 1.11), p=0.0),
+                A.RandomResizedCrop(size=(640,640), scale=(0.5, 1.0), ratio=(0.75, 1.33), p=1.0),
                 A.Blur(p=0.01),
                 A.MedianBlur(p=0.01),
                 A.ToGray(p=0.01),
